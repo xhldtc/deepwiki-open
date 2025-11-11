@@ -30,6 +30,7 @@ sdist/
 var/
 wheels/
 *.egg-info/
+venv/
 .installed.cfg
 *.egg
 *.venv

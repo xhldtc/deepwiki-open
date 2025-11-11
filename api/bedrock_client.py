@@ -64,24 +64,40 @@ class BedrockClient(ModelClient):
         self.async_client = None  # Initialize async client only when needed
 
     def init_sync_client(self):
-        """Initialize the synchronous AWS Bedrock client."""
+        """Initialize the synchronous AWS Bedrock client.
+
+        Uses the following credential resolution order:
+        1. Explicit credentials (if provided via parameters or environment variables)
+        2. IAM role credentials (if running on EC2/ECS/Lambda with an IAM role)
+        3. AWS credentials file (~/.aws/credentials)
+        4. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+        """
         try:
-            # Create a session with the provided credentials
-            session = boto3.Session(
-                aws_access_key_id=self.aws_access_key_id,
-                aws_secret_access_key=self.aws_secret_access_key,
-                region_name=self.aws_region
-            )
-            
+            # Create session parameters
+            session_params = {'region_name': self.aws_region}
+
+            # Only add credentials if they are explicitly provided
+            # If not provided, boto3 will use the default credential chain (including IAM role)
+            if self.aws_access_key_id and self.aws_secret_access_key:
+                session_params['aws_access_key_id'] = self.aws_access_key_id
+                session_params['aws_secret_access_key'] = self.aws_secret_access_key
+                log.info("Using explicit AWS credentials")
+            else:
+                log.info("Using default AWS credential chain (IAM role, credentials file, or environment variables)")
+
+            # Create a session with the provided credentials or default credential chain
+            session = boto3.Session(**session_params)
+
             # If a role ARN is provided, assume that role
             if self.aws_role_arn:
+                log.info(f"Assuming IAM role: {self.aws_role_arn}")
                 sts_client = session.client('sts')
                 assumed_role = sts_client.assume_role(
                     RoleArn=self.aws_role_arn,
                     RoleSessionName="DeepWikiBedrockSession"
                 )
                 credentials = assumed_role['Credentials']
-                
+
                 # Create a new session with the assumed role credentials
                 session = boto3.Session(
                     aws_access_key_id=credentials['AccessKeyId'],
@@ -89,15 +105,16 @@ class BedrockClient(ModelClient):
                     aws_session_token=credentials['SessionToken'],
                     region_name=self.aws_region
                 )
-            
+
             # Create the Bedrock client
             bedrock_runtime = session.client(
                 service_name='bedrock-runtime',
                 region_name=self.aws_region
             )
-            
+
+            log.info(f"AWS Bedrock client initialized successfully in region: {self.aws_region}")
             return bedrock_runtime
-            
+
         except Exception as e:
             log.error(f"Error initializing AWS Bedrock client: {str(e)}")
             # Return None to indicate initialization failure
@@ -114,15 +131,33 @@ class BedrockClient(ModelClient):
 
     def _get_model_provider(self, model_id: str) -> str:
         """Extract the provider from the model ID.
-        
+
         Args:
             model_id: The model ID, e.g., "anthropic.claude-3-sonnet-20240229-v1:0"
-            
+                     or ARN like "arn:aws:bedrock:us-east-1:590184013141:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
         Returns:
             The provider name, e.g., "anthropic"
         """
+        # Handle ARN format
+        if model_id.startswith("arn:aws:bedrock"):
+            # Extract the model name from ARN
+            # Format: arn:aws:bedrock:region:account:inference-profile/us.provider.model-name
+            parts = model_id.split("/")
+            if len(parts) > 1:
+                model_name = parts[-1]  # Get the part after the last slash
+                # Extract provider from model name (e.g., "us.anthropic.claude..." -> "anthropic")
+                if "." in model_name:
+                    name_parts = model_name.split(".")
+                    # Skip region prefix if present (e.g., "us")
+                    if len(name_parts) > 1 and name_parts[0] in ["us", "eu", "ap"]:
+                        return name_parts[1]
+                    return name_parts[0]
+
+        # Handle standard format (e.g., "anthropic.claude-3-sonnet...")
         if "." in model_id:
             return model_id.split(".")[0]
+
         return "amazon"  # Default provider
 
     def _format_prompt_for_provider(self, provider: str, prompt: str, messages=None) -> Dict[str, Any]:
@@ -315,3 +350,63 @@ class BedrockClient(ModelClient):
             return api_kwargs
         else:
             raise ValueError(f"Model type {model_type} is not supported by AWS Bedrock client")
+        
+
+def main():
+    """Test function to verify Bedrock API connectivity."""
+    import sys
+
+    print("=" * 60)
+    print("Testing AWS Bedrock API Connection")
+    print("=" * 60)
+
+    try:
+        # Initialize the client (will use IAM role if on EC2)
+        print("\n1. Initializing Bedrock client...")
+        client = BedrockClient()
+
+        if not client.sync_client:
+            print("❌ Failed to initialize Bedrock client.")
+            print("   Please check your IAM role permissions and region settings.")
+            sys.exit(1)
+
+        print("✓ Bedrock client initialized successfully")
+        print(f"   Region: {client.aws_region}")
+
+        # Test a simple API call
+        print("\n2. Testing API call with Claude 3 Sonnet...")
+        test_prompt = "Hello! Please respond with 'Connection successful' if you receive this message."
+
+        api_kwargs = {
+            "model": "arn:aws:bedrock:us-east-1:590184013141:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "input": test_prompt,
+            "temperature": 0.7
+        }
+
+        response = client.call(api_kwargs=api_kwargs, model_type=ModelType.LLM)
+
+        if response and not response.startswith("Error"):
+            print("✓ API call successful!")
+            print(f"\n   Response from Claude:")
+            print(f"   {response}")
+            print("\n" + "=" * 60)
+            print("✓ All tests passed! Bedrock API is working correctly.")
+            print("=" * 60)
+            return 0
+        else:
+            print(f"❌ API call failed: {response}")
+            print("\n   Please check:")
+            print("   - Your IAM role has bedrock:InvokeModel permission")
+            print("   - The model ID is correct and available in your region")
+            print("   - Your region has access to Bedrock")
+            sys.exit(1)
+
+    except Exception as e:
+        print(f"\n❌ Error during testing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

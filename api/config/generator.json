@@ -1,5 +1,5 @@
 {
-  "default_provider": "google",
+  "default_provider": "bedrock",
   "providers": {
     "dashscope": {
       "default_model": "qwen-plus",
@@ -142,9 +142,13 @@
     },
     "bedrock": {
       "client_class": "BedrockClient",
-      "default_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+      "default_model": "arn:aws:bedrock:us-east-1:590184013141:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
       "supportsCustomModel": true,
       "models": {
+        "arn:aws:bedrock:us-east-1:590184013141:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0": {
+          "temperature": 0.7,
+          "top_p": 0.8
+        },
         "anthropic.claude-3-sonnet-20240229-v1:0": {
           "temperature": 0.7,
           "top_p": 0.8
