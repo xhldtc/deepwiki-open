@@ -169,6 +169,8 @@ def get_embedder_config():
         return configs.get("embedder_google", {})
     elif embedder_type == 'ollama' and 'embedder_ollama' in configs:
         return configs.get("embedder_ollama", {})
+    elif embedder_type == 'bedrock' and 'embedder_bedrock' in configs:
+        return configs.get("embedder_bedrock", {})
     else:
         return configs.get("embedder", {})
 
