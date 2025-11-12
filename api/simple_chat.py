@@ -117,7 +117,7 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                 logger.error(f"No valid embeddings found: {str(e)}")
                 raise HTTPException(status_code=500, detail="No valid document embeddings found. This may be due to embedding size inconsistencies or API errors during document processing. Please try again or check your repository content.")
             else:
-                logger.error(f"ValueError preparing retriever: {str(e)}")
+                logger.exception(f"ValueError preparing retriever: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error preparing retriever: {str(e)}")
         except Exception as e:
             logger.error(f"Error preparing retriever: {str(e)}")
