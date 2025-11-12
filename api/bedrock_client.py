@@ -9,7 +9,7 @@ import backoff
 from typing import Dict, Any, Optional, List, Generator, Union, AsyncGenerator
 
 from adalflow.core.model_client import ModelClient
-from adalflow.core.types import ModelType, GeneratorOutput
+from adalflow.core.types import ModelType, GeneratorOutput, EmbedderOutput, Embedding
 
 # Configure logging
 from api.logging_config import setup_logging
@@ -253,6 +253,58 @@ class BedrockClient(ModelClient):
                         return response[key]
             return str(response)
 
+    def parse_embedding_response(self, response: Dict[str, Any]) -> EmbedderOutput:
+        """Parse AWS Bedrock embedding response to EmbedderOutput format.
+
+        Args:
+            response: AWS Bedrock embedding response
+
+        Returns:
+            EmbedderOutput with parsed embeddings
+        """
+        try:
+            embedding_data = []
+
+            # Handle different Bedrock embedding response formats
+            if isinstance(response, dict):
+                # Amazon Titan embedding response format
+                if 'embedding' in response:
+                    embedding_value = response['embedding']
+                    if isinstance(embedding_value, list):
+                        embedding_data = [Embedding(embedding=embedding_value, index=0)]
+                    else:
+                        log.warning(f"Unexpected embedding format: {type(embedding_value)}")
+
+                # Cohere embedding response format
+                elif 'embeddings' in response:
+                    embeddings = response['embeddings']
+                    if isinstance(embeddings, list):
+                        embedding_data = [
+                            Embedding(embedding=emb, index=i)
+                            for i, emb in enumerate(embeddings)
+                        ]
+                    else:
+                        log.warning(f"Unexpected embeddings format: {type(embeddings)}")
+
+                else:
+                    log.warning(f"Unexpected response structure: {response.keys()}")
+
+            else:
+                log.warning(f"Unexpected response type: {type(response)}")
+
+            return EmbedderOutput(
+                data=embedding_data,
+                error=None,
+                raw_response=response
+            )
+        except Exception as e:
+            log.error(f"Error parsing Bedrock embedding response: {e}")
+            return EmbedderOutput(
+                data=[],
+                error=str(e),
+                raw_response=response
+            )
+
     @backoff.on_exception(
         backoff.expo,
         (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError),
@@ -321,6 +373,60 @@ class BedrockClient(ModelClient):
             except Exception as e:
                 log.error(f"Error calling AWS Bedrock API: {str(e)}")
                 return f"Error: {str(e)}"
+
+        elif model_type == ModelType.EMBEDDER:
+            model_id = api_kwargs.get("model", "amazon.titan-embed-text-v2:0")
+            provider = self._get_model_provider(model_id)
+
+            # Get the input text(s)
+            input_text = api_kwargs.get("input", "")
+
+            # Prepare request body based on provider
+            if provider == "amazon":
+                # Amazon Titan embedding format
+                request_body = {
+                    "inputText": input_text
+                }
+
+                # Add dimensions parameter if provided (for Titan v2)
+                if "dimensions" in api_kwargs:
+                    request_body["dimensions"] = api_kwargs["dimensions"]
+
+                # Add normalize parameter if provided
+                if "normalize" in api_kwargs:
+                    request_body["normalize"] = api_kwargs["normalize"]
+
+            elif provider == "cohere":
+                # Cohere embedding format
+                request_body = {
+                    "texts": [input_text] if isinstance(input_text, str) else input_text,
+                    "input_type": api_kwargs.get("input_type", "search_document"),
+                    "truncate": api_kwargs.get("truncate", "NONE")
+                }
+
+            else:
+                # Default format
+                request_body = {"inputText": input_text}
+
+            # Convert request body to JSON
+            body = json.dumps(request_body)
+
+            try:
+                # Make the API call
+                response = self.sync_client.invoke_model(
+                    modelId=model_id,
+                    body=body
+                )
+
+                # Parse the response
+                response_body = json.loads(response["body"].read())
+
+                return response_body
+
+            except Exception as e:
+                log.error(f"Error calling AWS Bedrock Embeddings API: {str(e)}")
+                raise
+
         else:
             raise ValueError(f"Model type {model_type} is not supported by AWS Bedrock client")
 
@@ -336,18 +442,35 @@ class BedrockClient(ModelClient):
         """Convert inputs to API kwargs for AWS Bedrock."""
         model_kwargs = model_kwargs or {}
         api_kwargs = {}
-        
+
         if model_type == ModelType.LLM:
             api_kwargs["model"] = model_kwargs.get("model", "anthropic.claude-3-sonnet-20240229-v1:0")
             api_kwargs["input"] = input
-            
+
             # Add model parameters
             if "temperature" in model_kwargs:
                 api_kwargs["temperature"] = model_kwargs["temperature"]
             if "top_p" in model_kwargs:
                 api_kwargs["top_p"] = model_kwargs["top_p"]
-            
+
             return api_kwargs
+
+        elif model_type == ModelType.EMBEDDER:
+            api_kwargs["model"] = model_kwargs.get("model", "amazon.titan-embed-text-v2:0")
+            api_kwargs["input"] = input
+
+            # Add embedding-specific parameters
+            if "dimensions" in model_kwargs:
+                api_kwargs["dimensions"] = model_kwargs["dimensions"]
+            if "normalize" in model_kwargs:
+                api_kwargs["normalize"] = model_kwargs["normalize"]
+            if "input_type" in model_kwargs:
+                api_kwargs["input_type"] = model_kwargs["input_type"]
+            if "truncate" in model_kwargs:
+                api_kwargs["truncate"] = model_kwargs["truncate"]
+
+            return api_kwargs
+
         else:
             raise ValueError(f"Model type {model_type} is not supported by AWS Bedrock client")
         

@@ -212,17 +212,39 @@ def is_google_embedder():
     client_class = embedder_config.get("client_class", "")
     return client_class == "GoogleEmbedderClient"
 
+def is_bedrock_embedder():
+    """
+    Check if the current embedder configuration uses BedrockClient.
+
+    Returns:
+        bool: True if using BedrockClient, False otherwise
+    """
+    embedder_config = get_embedder_config()
+    if not embedder_config:
+        return False
+
+    # Check if model_client is BedrockClient
+    model_client = embedder_config.get("model_client")
+    if model_client:
+        return model_client.__name__ == "BedrockClient"
+
+    # Fallback: check client_class string
+    client_class = embedder_config.get("client_class", "")
+    return client_class == "BedrockClient"
+
 def get_embedder_type():
     """
     Get the current embedder type based on configuration.
-    
+
     Returns:
-        str: 'ollama', 'google', or 'openai' (default)
+        str: 'ollama', 'google', 'bedrock', or 'openai' (default)
     """
     if is_ollama_embedder():
         return 'ollama'
     elif is_google_embedder():
         return 'google'
+    elif is_bedrock_embedder():
+        return 'bedrock'
     else:
         return 'openai'
 
