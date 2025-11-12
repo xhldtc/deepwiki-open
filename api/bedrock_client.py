@@ -424,7 +424,7 @@ class BedrockClient(ModelClient):
                 return response_body
 
             except Exception as e:
-                log.error(f"Error calling AWS Bedrock Embeddings API: {str(e)}")
+                log.exception(f"Error calling AWS Bedrock Embeddings API: {str(e)}")
                 raise
 
         else:
