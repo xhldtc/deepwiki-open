@@ -375,7 +375,7 @@ class BedrockClient(ModelClient):
                 return f"Error: {str(e)}"
 
         elif model_type == ModelType.EMBEDDER:
-            model_id = api_kwargs.get("model", "amazon.titan-embed-text-v2:0")
+            model_id = api_kwargs.get("model", "cohere.embed-multilingual-v3")
             provider = self._get_model_provider(model_id)
 
             # Get the input text(s)

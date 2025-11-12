@@ -26,8 +26,7 @@
     "client_class": "BedrockClient",
     "batch_size": 500,
     "model_kwargs": {
-      "model": "amazon.titan-embed-text-v2:0",
-      "dimensions": 256
+      "model": "cohere.embed-multilingual-v3"
     }
   },
   "retriever": {

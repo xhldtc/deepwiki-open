@@ -165,6 +165,10 @@
           "temperature": 0.7,
           "top_p": 0.8
         },
+        "cohere.embed-multilingual-v3": {
+          "temperature": 0.7,
+          "top_p": 0.8
+        },
         "cohere.command-r-v1:0": {
           "temperature": 0.7,
           "top_p": 0.8
